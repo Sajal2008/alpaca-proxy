@@ -1,4 +1,10 @@
 export default async function handler(req, res) {
+  console.log('Full request details:', {
+    url: req.url,
+    query: req.query,
+    method: req.method
+  });
+  
   // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -14,12 +20,12 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Missing authorization header' });
   }
 
-  // Parse credentials
+  // Parse credentials from Bearer token format: "Bearer KEY:SECRET"
   const credentials = authHeader.replace('Bearer ', '');
   const [apiKey, secretKey] = credentials.split(':');
   
   if (!apiKey || !secretKey) {
-    return res.status(401).json({ error: 'Invalid authorization format' });
+    return res.status(401).json({ error: 'Invalid authorization format. Expected: Bearer API_KEY:SECRET_KEY' });
   }
 
   // Get the path from query parameter (set by rewrite rule)
@@ -27,7 +33,7 @@ export default async function handler(req, res) {
   if (!pathParam) {
     return res.status(200).json({ 
       message: 'Alpaca proxy is running',
-      note: 'Add a path like /v2/stocks/bars or /v2/stocks/AAPL/snapshot'
+      note: 'Add a path like /v2/account or /v2/stocks/AAPL/quotes/latest'
     });
   }
 
@@ -39,9 +45,10 @@ export default async function handler(req, res) {
   delete queryParams.path;
   const queryString = new URLSearchParams(queryParams).toString();
   
-  const alpacaUrl = `https://data.alpaca.markets${alpacaPath}${queryString ? '?' + queryString : ''}`;
+  // Use paper-api for paper trading
+  const alpacaUrl = `https://paper-api.alpaca.markets${alpacaPath}${queryString ? '?' + queryString : ''}`;
   
-  console.log('Proxying to:', alpacaUrl);
+  console.log(`Proxying to: ${alpacaUrl}`);
   console.log('With headers:', {
     'APCA-API-KEY-ID': apiKey.substring(0, 5) + '...',
     'APCA-API-SECRET-KEY': secretKey.substring(0, 5) + '...'
@@ -59,7 +66,6 @@ export default async function handler(req, res) {
 
     const data = await alpacaResponse.json();
     
-    // Log the response for debugging
     console.log('Alpaca response:', {
       status: alpacaResponse.status,
       data: JSON.stringify(data).substring(0, 200) + '...'
@@ -82,7 +88,8 @@ export default async function handler(req, res) {
     console.error('Proxy error:', error);
     res.status(500).json({ 
       error: 'Proxy server error', 
-      details: error.message 
+      details: error.message,
+      stack: error.stack
     });
   }
 }

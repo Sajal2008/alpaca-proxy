@@ -6,19 +6,19 @@ export default async function handler(req, res) {
   
   // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
   
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
-
+  
   // Extract authorization
   const authHeader = req.headers.authorization;
   if (!authHeader) {
     return res.status(401).json({ error: 'Missing authorization header' });
   }
-
+  
   // Parse credentials from Bearer token
   const credentials = authHeader.replace('Bearer ', '');
   const [apiKey, secretKey] = credentials.split(':');
@@ -26,44 +26,62 @@ export default async function handler(req, res) {
   if (!apiKey || !secretKey) {
     return res.status(401).json({ error: 'Invalid authorization format' });
   }
-
+  
   // Extract the path from the URL
-  // req.url will be something like: /api/alpaca-proxy/v2/account?path=%24path
   let fullPath = req.url;
   
   // Remove the /api/alpaca-proxy prefix
   let alpacaPath = fullPath.replace('/api/alpaca-proxy', '');
   
   // Remove any query parameters that include 'path='
-  alpacaPath = alpacaPath.split('?')[0];
+  const pathParts = alpacaPath.split('?');
+  const pathOnly = pathParts[0];
+  const queryString = pathParts[1] || '';
   
   // If no path, show help
-  if (!alpacaPath || alpacaPath === '' || alpacaPath === '/') {
+  if (!pathOnly || pathOnly === '' || pathOnly === '/') {
     return res.status(200).json({ 
       message: 'Alpaca proxy is running',
-      note: 'Add a path like /v2/account'
+      note: 'Add a path like /v2/account or /v2/stocks/AAPL/quotes/latest'
     });
   }
-
-  // Build the Alpaca URL
-  const alpacaUrl = `https://paper-api.alpaca.markets${alpacaPath}`;
+  
+  // Determine which Alpaca domain to use based on the endpoint
+  let alpacaDomain = 'https://paper-api.alpaca.markets';
+  
+  // Check if this is a market data endpoint
+  if (pathOnly.includes('/v2/stocks/') || 
+      pathOnly.includes('/v2/forex/') || 
+      pathOnly.includes('/v2/crypto/')) {
+    alpacaDomain = 'https://data.alpaca.markets';
+  }
+  
+  // Build the full Alpaca URL with query parameters
+  const alpacaUrl = `${alpacaDomain}${pathOnly}${queryString ? '?' + queryString : ''}`;
   
   console.log('Proxying to:', alpacaUrl);
   console.log('With credentials:', {
     'APCA-API-KEY-ID': apiKey.substring(0, 5) + '...',
     'APCA-API-SECRET-KEY': secretKey.substring(0, 5) + '...'
   });
-
+  
   try {
-    const alpacaResponse = await fetch(alpacaUrl, {
+    // Prepare request options
+    const fetchOptions = {
       method: req.method,
       headers: {
         'APCA-API-KEY-ID': apiKey,
         'APCA-API-SECRET-KEY': secretKey,
         'Content-Type': 'application/json'
       }
-    });
-
+    };
+    
+    // Add body for POST/PUT requests
+    if (req.method === 'POST' || req.method === 'PUT') {
+      fetchOptions.body = JSON.stringify(req.body);
+    }
+    
+    const alpacaResponse = await fetch(alpacaUrl, fetchOptions);
     const data = await alpacaResponse.json();
     
     console.log('Alpaca response:', {

@@ -58,6 +58,7 @@ export default async function handler(req, res) {
   
   // Check if this is a market data endpoint
   if (pathOnly.includes('/v2/stocks/') || 
+      pathOnly.includes('/v2/options/') ||
       pathOnly.includes('/v2/forex/') || 
       pathOnly.includes('/v2/crypto/')) {
     alpacaDomain = 'https://data.alpaca.markets';

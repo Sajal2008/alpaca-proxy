@@ -22,19 +22,24 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Invalid authorization format' });
   }
 
-  // Get the path and query from the original URL
-  // The GPT is sending: /api/alpaca-proxy/v2/stocks/bars?symbols=AAPL&limit=5
-  // We need: /v2/stocks/bars?symbols=AAPL&limit=5
-  
-  const fullUrl = req.url;
-  const pathMatch = fullUrl.match(/\/api\/alpaca-proxy(.+)/);
-  
-  if (!pathMatch) {
-    return res.status(400).json({ error: 'Invalid path' });
+  // Get the path from query parameter (set by rewrite rule)
+  const pathParam = req.query.path;
+  if (!pathParam) {
+    return res.status(200).json({ 
+      message: 'Alpaca proxy is running',
+      note: 'Add a path like /v2/stocks/bars or /v2/stocks/AAPL/snapshot'
+    });
   }
+
+  // Reconstruct the full path
+  const alpacaPath = '/' + (Array.isArray(pathParam) ? pathParam.join('/') : pathParam);
   
-  const alpacaPath = pathMatch[1]; // This gets everything after /api/alpaca-proxy
-  const alpacaUrl = `https://data.alpaca.markets${alpacaPath}`;
+  // Build query string excluding the path parameter
+  const queryParams = { ...req.query };
+  delete queryParams.path;
+  const queryString = new URLSearchParams(queryParams).toString();
+  
+  const alpacaUrl = `https://data.alpaca.markets${alpacaPath}${queryString ? '?' + queryString : ''}`;
   
   console.log('Proxying to:', alpacaUrl);
 

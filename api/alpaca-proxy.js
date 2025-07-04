@@ -42,6 +42,10 @@ export default async function handler(req, res) {
   const alpacaUrl = `https://data.alpaca.markets${alpacaPath}${queryString ? '?' + queryString : ''}`;
   
   console.log('Proxying to:', alpacaUrl);
+  console.log('With headers:', {
+    'APCA-API-KEY-ID': apiKey.substring(0, 5) + '...',
+    'APCA-API-SECRET-KEY': secretKey.substring(0, 5) + '...'
+  });
 
   try {
     const alpacaResponse = await fetch(alpacaUrl, {

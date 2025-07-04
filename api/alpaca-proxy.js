@@ -1,10 +1,6 @@
-export default async function handler(req, res) {
-  console.log('Incoming request:', {
-    method: req.method,
-    url: req.url,
-    headers: req.headers
-  });
+// Save this as: api/alpaca-proxy.js in your Vercel project
 
+export default async function handler(req, res) {
   // Enable CORS for GPT Actions
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -14,39 +10,23 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // Extract the combined credentials from Authorization header
+  // Extract the API key from Authorization header
   const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    console.error('Missing authorization header');
-    return res.status(401).json({ error: 'Missing authorization header' });
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing or invalid authorization header' });
   }
 
-  // Extract API key and secret
-  let apiKey, secretKey;
-  const credentials = authHeader.replace('Bearer ', '');
-  [apiKey, secretKey] = credentials.split(':');
+  // Expected format: "Bearer PK9VOAP7D3CA18HGF7BH:gkJvuobvGkIiNNELWC9vtHemewGbrnhHntHFBKLG"
+  const [apiKey, secretKey] = authHeader.replace('Bearer ', '').split(':');
   
   if (!apiKey || !secretKey) {
-    console.error('Invalid credentials format');
-    return res.status(401).json({ error: 'Invalid authorization format. Expected: Bearer API_KEY:SECRET_KEY' });
+    return res.status(401).json({ error: 'Invalid API key format' });
   }
 
-  // Extract the path after /api/alpaca-proxy
-  let alpacaPath = req.url.replace('/api/alpaca-proxy', '');
-  
-  // If no path provided, add a default
-  if (!alpacaPath || alpacaPath === '/') {
-    alpacaPath = '/v2/stocks/bars';
-  }
-
-  // Build the full Alpaca URL with query parameters
-  const alpacaUrl = `https://data.alpaca.markets${alpacaPath}`;
-  
-  console.log('Forwarding to Alpaca:', {
-    url: alpacaUrl,
-    apiKey: apiKey.substring(0, 5) + '...',
-    secretKey: secretKey.substring(0, 5) + '...'
-  });
+  // Build the Alpaca API URL
+  const alpacaBaseUrl = 'https://data.alpaca.markets';
+  const path = req.url.replace('/api/alpaca-proxy', '');
+  const alpacaUrl = `${alpacaBaseUrl}${path}`;
 
   try {
     // Forward the request to Alpaca with proper headers
@@ -59,26 +39,25 @@ export default async function handler(req, res) {
       }
     });
 
-    const responseText = await alpacaResponse.text();
-    let data;
-    
-    try {
-      data = JSON.parse(responseText);
-    } catch (e) {
-      console.error('Failed to parse Alpaca response:', responseText);
-      data = { error: 'Invalid response from Alpaca', details: responseText };
-    }
-
-    console.log('Alpaca response status:', alpacaResponse.status);
+    const data = await alpacaResponse.json();
     
     // Forward the response
     res.status(alpacaResponse.status).json(data);
   } catch (error) {
     console.error('Proxy error:', error);
-    res.status(500).json({ 
-      error: 'Proxy server error', 
-      details: error.message,
-      stack: error.stack 
-    });
+    res.status(500).json({ error: 'Proxy server error' });
   }
+}
+
+// For local testing with Node.js (optional)
+// Run with: node alpaca-proxy.js
+if (typeof window === 'undefined' && process.env.NODE_ENV === 'test') {
+  const http = require('http');
+  const server = http.createServer((req, res) => {
+    req.headers.authorization = req.headers.authorization || process.env.TEST_AUTH;
+    handler(req, res);
+  });
+  server.listen(3000, () => {
+    console.log('Proxy server running on http://localhost:3000');
+  });
 }

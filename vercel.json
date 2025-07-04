@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/alpaca-proxy/:path*",
+      "destination": "/api/alpaca-proxy?path=$path"
+    }
+  ]
+}

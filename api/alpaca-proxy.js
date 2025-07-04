@@ -58,6 +58,25 @@ export default async function handler(req, res) {
     });
 
     const data = await alpacaResponse.json();
+    
+    // Log the response for debugging
+    console.log('Alpaca response:', {
+      status: alpacaResponse.status,
+      data: JSON.stringify(data).substring(0, 200) + '...'
+    });
+    
+    // If Alpaca returns an error, add more context
+    if (alpacaResponse.status !== 200) {
+      return res.status(alpacaResponse.status).json({
+        ...data,
+        proxy_debug: {
+          url_called: alpacaUrl,
+          alpaca_status: alpacaResponse.status,
+          note: 'This error is from Alpaca, not the proxy'
+        }
+      });
+    }
+    
     res.status(alpacaResponse.status).json(data);
   } catch (error) {
     console.error('Proxy error:', error);

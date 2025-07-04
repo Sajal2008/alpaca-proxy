@@ -1,7 +1,10 @@
-// Save this as: api/alpaca-proxy.js in your Vercel project
-
 export default async function handler(req, res) {
-  // Enable CORS for GPT Actions
+  console.log('=== INCOMING REQUEST ===');
+  console.log('URL:', req.url);
+  console.log('Method:', req.method);
+  console.log('Query:', req.query);
+
+  // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
@@ -10,26 +13,54 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // Extract the API key from Authorization header
+  // Extract authorization
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing or invalid authorization header' });
+  if (!authHeader) {
+    console.error('No authorization header found');
+    return res.status(401).json({ error: 'Missing authorization header' });
   }
 
-  // Expected format: "Bearer PK9VOAP7D3CA18HGF7BH:gkJvuobvGkIiNNELWC9vtHemewGbrnhHntHFBKLG"
-  const [apiKey, secretKey] = authHeader.replace('Bearer ', '').split(':');
+  // Parse credentials
+  let apiKey, secretKey;
+  const credentials = authHeader.replace('Bearer ', '');
+  [apiKey, secretKey] = credentials.split(':');
   
   if (!apiKey || !secretKey) {
-    return res.status(401).json({ error: 'Invalid API key format' });
+    console.error('Invalid credential format');
+    return res.status(401).json({ error: 'Invalid authorization format' });
   }
 
-  // Build the Alpaca API URL
-  const alpacaBaseUrl = 'https://data.alpaca.markets';
-  const path = req.url.replace('/api/alpaca-proxy', '');
-  const alpacaUrl = `${alpacaBaseUrl}${path}`;
+  // Extract the actual path from the URL
+  // The URL will be something like /api/alpaca-proxy/v2/stocks/bars
+  // We need to get everything after /api/
+  let alpacaPath = req.url.split('?')[0]; // Remove query string
+  alpacaPath = alpacaPath.replace('/api', ''); // Remove /api prefix
+  
+  // If the path contains 'alpaca-proxy', remove it
+  if (alpacaPath.includes('/alpaca-proxy')) {
+    alpacaPath = alpacaPath.replace('/alpaca-proxy', '');
+  }
+  
+  // Ensure path starts with /
+  if (!alpacaPath.startsWith('/')) {
+    alpacaPath = '/' + alpacaPath;
+  }
+
+  // Build query string from req.query
+  const queryParams = new URLSearchParams();
+  Object.keys(req.query).forEach(key => {
+    if (key !== 'path') { // Exclude the path parameter if it exists
+      queryParams.append(key, req.query[key]);
+    }
+  });
+  
+  const queryString = queryParams.toString();
+  const alpacaUrl = `https://data.alpaca.markets${alpacaPath}${queryString ? '?' + queryString : ''}`;
+  
+  console.log('Forwarding to Alpaca:', alpacaUrl);
+  console.log('With credentials:', { apiKey: apiKey.substring(0, 5) + '...', secretKey: secretKey.substring(0, 5) + '...' });
 
   try {
-    // Forward the request to Alpaca with proper headers
     const alpacaResponse = await fetch(alpacaUrl, {
       method: req.method,
       headers: {
@@ -39,25 +70,24 @@ export default async function handler(req, res) {
       }
     });
 
-    const data = await alpacaResponse.json();
+    const responseText = await alpacaResponse.text();
+    console.log('Alpaca response status:', alpacaResponse.status);
     
-    // Forward the response
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (e) {
+      console.error('Failed to parse response:', responseText);
+      data = { error: 'Invalid response from Alpaca', details: responseText };
+    }
+    
     res.status(alpacaResponse.status).json(data);
   } catch (error) {
     console.error('Proxy error:', error);
-    res.status(500).json({ error: 'Proxy server error' });
+    res.status(500).json({ 
+      error: 'Proxy server error', 
+      details: error.message,
+      stack: error.stack
+    });
   }
-}
-
-// For local testing with Node.js (optional)
-// Run with: node alpaca-proxy.js
-if (typeof window === 'undefined' && process.env.NODE_ENV === 'test') {
-  const http = require('http');
-  const server = http.createServer((req, res) => {
-    req.headers.authorization = req.headers.authorization || process.env.TEST_AUTH;
-    handler(req, res);
-  });
-  server.listen(3000, () => {
-    console.log('Proxy server running on http://localhost:3000');
-  });
 }

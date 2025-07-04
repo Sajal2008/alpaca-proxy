@@ -1,7 +1,6 @@
 export default async function handler(req, res) {
-  console.log('Full request details:', {
+  console.log('Full request:', {
     url: req.url,
-    query: req.query,
     method: req.method
   });
   
@@ -20,36 +19,37 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Missing authorization header' });
   }
 
-  // Parse credentials from Bearer token format: "Bearer KEY:SECRET"
+  // Parse credentials from Bearer token
   const credentials = authHeader.replace('Bearer ', '');
   const [apiKey, secretKey] = credentials.split(':');
   
   if (!apiKey || !secretKey) {
-    return res.status(401).json({ error: 'Invalid authorization format. Expected: Bearer API_KEY:SECRET_KEY' });
+    return res.status(401).json({ error: 'Invalid authorization format' });
   }
 
-  // Get the path from query parameter (set by rewrite rule)
-  const pathParam = req.query.path;
-  if (!pathParam) {
+  // Extract the path from the URL
+  // req.url will be something like: /api/alpaca-proxy/v2/account?path=%24path
+  let fullPath = req.url;
+  
+  // Remove the /api/alpaca-proxy prefix
+  let alpacaPath = fullPath.replace('/api/alpaca-proxy', '');
+  
+  // Remove any query parameters that include 'path='
+  alpacaPath = alpacaPath.split('?')[0];
+  
+  // If no path, show help
+  if (!alpacaPath || alpacaPath === '' || alpacaPath === '/') {
     return res.status(200).json({ 
       message: 'Alpaca proxy is running',
-      note: 'Add a path like /v2/account or /v2/stocks/AAPL/quotes/latest'
+      note: 'Add a path like /v2/account'
     });
   }
 
-  // Reconstruct the full path
-  const alpacaPath = '/' + (Array.isArray(pathParam) ? pathParam.join('/') : pathParam);
+  // Build the Alpaca URL
+  const alpacaUrl = `https://paper-api.alpaca.markets${alpacaPath}`;
   
-  // Build query string excluding the path parameter
-  const queryParams = { ...req.query };
-  delete queryParams.path;
-  const queryString = new URLSearchParams(queryParams).toString();
-  
-  // Use paper-api for paper trading
-  const alpacaUrl = `https://paper-api.alpaca.markets${alpacaPath}${queryString ? '?' + queryString : ''}`;
-  
-  console.log(`Proxying to: ${alpacaUrl}`);
-  console.log('With headers:', {
+  console.log('Proxying to:', alpacaUrl);
+  console.log('With credentials:', {
     'APCA-API-KEY-ID': apiKey.substring(0, 5) + '...',
     'APCA-API-SECRET-KEY': secretKey.substring(0, 5) + '...'
   });
@@ -68,28 +68,15 @@ export default async function handler(req, res) {
     
     console.log('Alpaca response:', {
       status: alpacaResponse.status,
-      data: JSON.stringify(data).substring(0, 200) + '...'
+      data: JSON.stringify(data).substring(0, 100) + '...'
     });
-    
-    // If Alpaca returns an error, add more context
-    if (alpacaResponse.status !== 200) {
-      return res.status(alpacaResponse.status).json({
-        ...data,
-        proxy_debug: {
-          url_called: alpacaUrl,
-          alpaca_status: alpacaResponse.status,
-          note: 'This error is from Alpaca, not the proxy'
-        }
-      });
-    }
     
     res.status(alpacaResponse.status).json(data);
   } catch (error) {
     console.error('Proxy error:', error);
     res.status(500).json({ 
       error: 'Proxy server error', 
-      details: error.message,
-      stack: error.stack
+      details: error.message 
     });
   }
 }

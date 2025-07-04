@@ -36,7 +36,14 @@ export default async function handler(req, res) {
   // Remove any query parameters that include 'path='
   const pathParts = alpacaPath.split('?');
   const pathOnly = pathParts[0];
-  const queryString = pathParts[1] || '';
+  let queryString = pathParts[1] || '';
+  
+  // Remove the 'path' parameter if it exists
+  if (queryString) {
+    const params = new URLSearchParams(queryString);
+    params.delete('path'); // Remove the problematic 'path' parameter
+    queryString = params.toString();
+  }
   
   // If no path, show help
   if (!pathOnly || pathOnly === '' || pathOnly === '/') {

@@ -1,4 +1,10 @@
 export default async function handler(req, res) {
+  console.log('Incoming request:', {
+    method: req.method,
+    url: req.url,
+    headers: req.headers
+  });
+
   // Enable CORS for GPT Actions
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -11,38 +17,36 @@ export default async function handler(req, res) {
   // Extract the combined credentials from Authorization header
   const authHeader = req.headers.authorization;
   if (!authHeader) {
+    console.error('Missing authorization header');
     return res.status(401).json({ error: 'Missing authorization header' });
   }
 
-  // Try different formats
+  // Extract API key and secret
   let apiKey, secretKey;
-  
-  // Format 1: "Bearer KEY:SECRET"
-  if (authHeader.startsWith('Bearer ')) {
-    const credentials = authHeader.replace('Bearer ', '');
-    [apiKey, secretKey] = credentials.split(':');
-  }
-  // Format 2: "APCA-API-KEY-ID=KEY,APCA-API-SECRET-KEY=SECRET"
-  else if (authHeader.includes('APCA-API-KEY-ID=')) {
-    const matches = authHeader.match(/APCA-API-KEY-ID=([^,]+),APCA-API-SECRET-KEY=(.+)/);
-    if (matches) {
-      apiKey = matches[1];
-      secretKey = matches[2];
-    }
-  }
-  // Format 3: Direct "KEY:SECRET"
-  else {
-    [apiKey, secretKey] = authHeader.split(':');
-  }
+  const credentials = authHeader.replace('Bearer ', '');
+  [apiKey, secretKey] = credentials.split(':');
   
   if (!apiKey || !secretKey) {
-    return res.status(401).json({ error: 'Invalid authorization format' });
+    console.error('Invalid credentials format');
+    return res.status(401).json({ error: 'Invalid authorization format. Expected: Bearer API_KEY:SECRET_KEY' });
   }
 
-  // Build the Alpaca API URL
-  const alpacaBaseUrl = 'https://data.alpaca.markets';
-  const path = req.url.replace('/api/alpaca-proxy', '');
-  const alpacaUrl = `${alpacaBaseUrl}${path}`;
+  // Extract the path after /api/alpaca-proxy
+  let alpacaPath = req.url.replace('/api/alpaca-proxy', '');
+  
+  // If no path provided, add a default
+  if (!alpacaPath || alpacaPath === '/') {
+    alpacaPath = '/v2/stocks/bars';
+  }
+
+  // Build the full Alpaca URL with query parameters
+  const alpacaUrl = `https://data.alpaca.markets${alpacaPath}`;
+  
+  console.log('Forwarding to Alpaca:', {
+    url: alpacaUrl,
+    apiKey: apiKey.substring(0, 5) + '...',
+    secretKey: secretKey.substring(0, 5) + '...'
+  });
 
   try {
     // Forward the request to Alpaca with proper headers
@@ -55,12 +59,26 @@ export default async function handler(req, res) {
       }
     });
 
-    const data = await alpacaResponse.json();
+    const responseText = await alpacaResponse.text();
+    let data;
+    
+    try {
+      data = JSON.parse(responseText);
+    } catch (e) {
+      console.error('Failed to parse Alpaca response:', responseText);
+      data = { error: 'Invalid response from Alpaca', details: responseText };
+    }
+
+    console.log('Alpaca response status:', alpacaResponse.status);
     
     // Forward the response
     res.status(alpacaResponse.status).json(data);
   } catch (error) {
     console.error('Proxy error:', error);
-    res.status(500).json({ error: 'Proxy server error', details: error.message });
+    res.status(500).json({ 
+      error: 'Proxy server error', 
+      details: error.message,
+      stack: error.stack 
+    });
   }
 }
